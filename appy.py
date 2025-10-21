@@ -11,6 +11,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+@app.route("/health")
+def health():
+    return {"status": "ok"}, 200
+
+
 # Models
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
