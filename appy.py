@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import os
+import traceback
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -22,6 +23,7 @@ def dbcheck():
         db.session.execute("SELECT 1")
         return {"database": "connected"}, 200
     except Exception as e:
+        traceback.print_exc()
         return {"database": "error", "detail": str(e)}, 500
 
 # --- Models ---
@@ -44,6 +46,25 @@ class Project(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
+# --- Create tables & seed admin on boot ---
+with app.app_context():
+    db.create_all()
+    if not User.query.filter_by(username="admin").first():
+        admin = User(
+            username="admin",
+            email="admin@westcoastwalls.com",
+            password_hash=generate_password_hash("admin123"),
+            is_admin=True,
+        )
+        db.session.add(admin)
+        db.session.commit()
+
+# --- Global error handler: print full trace to logs ---
+@app.errorhandler(Exception)
+def handle_any_error(e):
+    traceback.print_exc()
+    return "Internal Server Error", 500
+
 # --- Routes ---
 @app.route("/")
 def index():
@@ -54,33 +75,39 @@ def index():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        # Accept BOTH form posts and JSON
-        data = None
-        if request.is_json or "application/json" in request.headers.get("Content-Type", ""):
-            data = request.get_json(silent=True) or {}
-            username = data.get("username", "").strip()
-            password = data.get("password", "")
-            wants_json = True
-        else:
-            username = request.form.get("username", "").strip()
-            password = request.form.get("password", "")
-            wants_json = False
+        try:
+            # Accept BOTH form posts and JSON
+            if request.is_json or "application/json" in (request.headers.get("Content-Type") or ""):
+                data = request.get_json(silent=True) or {}
+                username = data.get("username", "").strip()
+                password = data.get("password", "")
+                wants_json = True
+            else:
+                username = request.form.get("username", "").strip()
+                password = request.form.get("password", "")
+                wants_json = False
 
-        user = User.query.filter_by(username=username.lower()).first() or \
-               User.query.filter_by(username=username).first()
+            # Try exact and lower-cased lookup
+            user = (User.query.filter_by(username=username).first() or
+                    User.query.filter_by(username=username.lower()).first())
 
-        ok = bool(user and check_password_hash(user.password_hash, password))
-        if ok:
-            session["user_id"] = user.id
-            session["username"] = user.username
-            session["is_admin"] = user.is_admin
+            if user and check_password_hash(user.password_hash, password):
+                session["user_id"] = user.id
+                session["username"] = user.username
+                session["is_admin"] = user.is_admin
+                if wants_json:
+                    return jsonify({"success": True})
+                return redirect(url_for("index"))
+
             if wants_json:
-                return jsonify({"success": True})
-            return redirect(url_for("index"))
-        else:
-            if wants_json:
-                return jsonify({"success": False, "message": "Invalid credentials"}), 401
+                return jsonify({"success": False, "message": "Invalid username or password"}), 401
             return render_template("login.html", error="Invalid username or password")
+
+        except Exception:
+            traceback.print_exc()
+            if request.is_json:
+                return jsonify({"success": False, "message": "Server error"}), 500
+            return "Internal Server Error", 500
 
     # GET
     return render_template("login.html")
@@ -137,7 +164,6 @@ def project_detail(id):
         db.session.commit()
         return jsonify({"success": True})
 
-    # PUT
     data = request.get_json() or {}
     project.customer_name = data.get("customer_name", project.customer_name)
     project.address = data.get("address", project.address)
@@ -151,7 +177,6 @@ def project_detail(id):
 @app.route("/init-db")
 def init_db():
     db.create_all()
-    # Create default admin user if none exists
     if not User.query.filter_by(username="admin").first():
         admin = User(
             username="admin",
