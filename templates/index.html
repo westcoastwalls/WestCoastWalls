@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WestCoastWalls Dashboard</title>
+  <style>
+    body {font-family: Arial, sans-serif; background: #6d72c3; margin: 0;}
+    .container {max-width: 1000px; margin: 30px auto; background: white; border-radius: 10px; padding: 20px;}
+    table {width: 100%; border-collapse: collapse;}
+    th, td {padding: 10px; border-bottom: 1px solid #eee; text-align: left;}
+    h1 {color: #6d72c3;}
+    .btn {background: #6d72c3; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer;}
+    .logout {float: right; background: #999;}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏗️ WestCoastWalls Dashboard</h1>
+    <a href="/logout" class="btn logout">Logout</a>
+    <button class="btn">+ New Project</button>
+    <h2>Projects</h2>
+    <table>
+      <thead><tr><th>Customer</th><th>Address</th><th>Status</th><th>Quote</th><th>Cost</th><th>Actions</th></tr></thead>
+      <tbody id="projects"></tbody>
+    </table>
+  </div>
+
+  <script>
+    async function loadProjects() {
+      const res = await fetch('/api/projects');
+      const data = await res.json();
+      const rows = data.map(p => `<tr>
+        <td>${p.customer_name}</td>
+        <td>${p.address}</td>
+        <td>${p.status}</td>
+        <td>${p.quote_amount || ''}</td>
+        <td>${p.actual_cost || ''}</td>
+        <td><button class='btn'>Edit</button></td>
+      </tr>`).join('');
+      document.getElementById('projects').innerHTML = rows;
+    }
+    loadProjects();
+  </script>
+</body>
+</html>
