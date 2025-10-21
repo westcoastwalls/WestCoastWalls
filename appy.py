@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import text
 from datetime import datetime
 import os
 import traceback
@@ -20,11 +21,23 @@ def health():
 @app.route("/dbcheck")
 def dbcheck():
     try:
-        db.session.execute("SELECT 1")
+        db.session.execute(text("SELECT 1"))
         return {"database": "connected"}, 200
     except Exception as e:
         traceback.print_exc()
         return {"database": "error", "detail": str(e)}, 500
+
+@app.route("/test")
+def test():
+    return "OK test", 200
+
+@app.route("/whoami")
+def whoami():
+    return {
+        "user_id": session.get("user_id"),
+        "username": session.get("username"),
+        "is_admin": session.get("is_admin"),
+    }, 200
 
 # --- Models ---
 class User(db.Model):
@@ -48,16 +61,19 @@ class Project(db.Model):
 
 # --- Create tables & seed admin on boot ---
 with app.app_context():
-    db.create_all()
-    if not User.query.filter_by(username="admin").first():
-        admin = User(
-            username="admin",
-            email="admin@westcoastwalls.com",
-            password_hash=generate_password_hash("admin123"),
-            is_admin=True,
-        )
-        db.session.add(admin)
-        db.session.commit()
+    try:
+        db.create_all()
+        if not User.query.filter_by(username="admin").first():
+            admin = User(
+                username="admin",
+                email="admin@westcoastwalls.com",
+                password_hash=generate_password_hash("admin123"),
+                is_admin=True,
+            )
+            db.session.add(admin)
+            db.session.commit()
+    except Exception:
+        traceback.print_exc()
 
 # --- Global error handler: print full trace to logs ---
 @app.errorhandler(Exception)
@@ -70,7 +86,17 @@ def handle_any_error(e):
 def index():
     if "user_id" not in session:
         return redirect(url_for("login"))
-    return render_template("index.html")
+    # Guard template rendering so a missing/buggy template doesn't white-screen you
+    try:
+        return render_template("index.html")
+    except Exception:
+        traceback.print_exc()
+        return (
+            "<h2>Dashboard template error</h2>"
+            "<p>Template missing or has an error. Check logs. "
+            "As a quick test, hit <code>/login</code> or <code>/test</code>.</p>",
+            500,
+        )
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
